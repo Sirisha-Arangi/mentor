@@ -1,31 +1,14 @@
 # backend/app/models/document.py
-from pydantic import BaseModel, Field
-from typing import List, Optional
-from enum import Enum
-from datetime import datetime
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
 
-class DocumentType(str, Enum):
-    PDF = "pdf"
-    TXT = "txt"
-    DOCX = "docx"
+class DocumentChunk(BaseModel):
+    text: str
+    document_id: str
+    metadata: Optional[Dict[str, Any]] = None
 
-class DocumentBase(BaseModel):
-    title: str
-    description: Optional[str] = None
-    document_type: DocumentType
-    file_path: str
-    file_size: int
-    page_count: Optional[int] = None
-    metadata: dict = Field(default_factory=dict)
-
-class DocumentCreate(DocumentBase):
-    pass
-
-class Document(DocumentBase):
+class Document(BaseModel):
     id: str
-    owner_id: str
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
+    filename: str
+    chunks: List[DocumentChunk]
+    metadata: Dict[str, Any] = {}

@@ -9,7 +9,7 @@ import {
   Assignment as AssignmentIcon,
   GpsFixed as GpsFixedIcon
 } from '@mui/icons-material';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useLocation } from 'react-router-dom';
 
 const drawerWidth = 240;
 
@@ -34,10 +34,10 @@ const menuItems = [
 ];
 
 const Sidebar = () => {
+  const location = useLocation();
+
   return (
-    <StyledDrawer
-      variant="permanent"
-    >
+    <StyledDrawer variant="permanent">
       <Toolbar /> {/* This pushes content below the app bar */}
       <Box sx={{ overflow: 'auto' }}>
         <List>
@@ -47,8 +47,24 @@ const Sidebar = () => {
               key={item.text}
               component={RouterLink}
               to={item.path}
+              selected={location.pathname === item.path}
+              sx={{
+                '&.Mui-selected': {
+                  backgroundColor: 'primary.main',
+                  color: 'white',
+                  '&:hover': {
+                    backgroundColor: 'primary.dark',
+                  },
+                  '& .MuiListItemIcon-root': {
+                    color: 'white',
+                  },
+                },
+                '&:hover': {
+                  backgroundColor: 'action.hover',
+                },
+              }}
             >
-              <ListItemIcon>{item.icon}</ListItemIcon>
+              <ListItemIcon sx={{ color: 'inherit' }}>{item.icon}</ListItemIcon>
               <ListItemText primary={item.text} />
             </ListItem>
           ))}

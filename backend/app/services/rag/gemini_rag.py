@@ -1,64 +1,80 @@
-from typing import List, Optional, Dict
+﻿# backend/app/services/rag/gemini_rag.py
+from typing import List, Dict, Any, Optional
 import google.generativeai as genai
-from .chroma_rag import ChromaRAG
-from .base_rag import DocumentChunk
+from .base_rag import BaseRAG
+from app.models.document import DocumentChunk
+from app.config import settings
+import logging
 
-class GeminiRAG(ChromaRAG):
-    def __init__(
-        self,
-        api_key: str,
-        embedding_model: str = "models/embedding-001",
-        chat_model: str = "gemini-pro",
-        **kwargs
-    ):
-        super().__init__(**kwargs)
-        # Configure the Gemini API
+logger = logging.getLogger(__name__)
+
+class GeminiRAG(BaseRAG):
+    def __init__(self, api_key: str, model_name: str | None = None, **kwargs):
+        super().__init__()
+        self.model_name = model_name or settings.MODEL_NAME
         genai.configure(api_key=api_key)
-        self.embedding_model_name = embedding_model
-        self.chat_model_name = chat_model
+        self.model = genai.GenerativeModel(self.model_name)
+        self.chunks: List[DocumentChunk] = []
+        self.documents: Dict[str, Any] = {}
+        logger.info(f"Initialized GeminiRAG with model: {self.model_name}")
 
-    async def embed_query(self, text: str) -> List[float]:
-        """Generate embedding using Gemini's embedding model"""
+    def add_documents(self, documents: List[DocumentChunk], **kwargs) -> bool:
+        """Add multiple document chunks to the RAG system."""
         try:
-            result = genai.embed_content(
-                model=self.embedding_model_name,
-                content=text,
-                task_type="retrieval_document"
-            )
-            return result['embedding']
+            logger.info(f"Adding {len(documents)} document chunks")
+            self.chunks.extend(documents)
+            return True
         except Exception as e:
-            print(f"Error generating embedding: {e}")
-            return [0.0] * 768  # Fallback zero vector
+            logger.error(f"Error adding documents: {str(e)}", exc_info=True)
+            return False
 
-    async def generate(
-        self,
-        query: str,
-        context: List[DocumentChunk],
-        system_prompt: str = "You are a helpful AI teaching assistant.",
-        **generation_params
-    ) -> str:
-        """Generate response using Gemini's chat model"""
+    def add_document(self, doc_id: str, chunks: List[Dict], metadata: Optional[Dict] = None) -> bool:
+        """Add a document with multiple chunks to the RAG system."""
         try:
-            # Prepare context
-            context_text = "\n\n".join([doc.text for doc in context])
+            logger.info(f"Adding document {doc_id} with {len(chunks)} chunks")
+            self.documents[doc_id] = {
+                "chunks": [chunk['text'] for chunk in chunks],
+                "metadata": metadata or {}
+            }
+            # Convert dicts to DocumentChunk objects
+            doc_chunks = []
+            for i, chunk in enumerate(chunks):
+                doc_chunks.append(DocumentChunk(
+                    text=chunk['text'],
+                    document_id=doc_id,
+                    metadata={
+                        **chunk.get('metadata', {}),
+                        "chunk_index": i,
+                        "doc_id": doc_id
+                    }
+                ))
             
-            # Create the model
-            model = genai.GenerativeModel(self.chat_model_name)
-            
-            # Prepare the prompt
-            prompt = f"""{system_prompt}
-            
-            Context:
-            {context_text}
-            
-            Question: {query}
-            
-            Answer:"""
-            
-            # Generate content
-            response = await model.generate_content_async(prompt)
+            self.chunks.extend(doc_chunks)
+            return True
+        except Exception as e:
+            logger.error(f"Error adding document: {str(e)}", exc_info=True)
+            return False
+
+    def search(self, query: str, k: int = 5, **kwargs) -> List[Dict[str, Any]]:
+        """Search for relevant document chunks based on the query."""
+        try:
+            logger.info(f"Searching for query: {query}")
+            # Simple implementation: return the first k chunks
+            results = []
+            for chunk in self.chunks[:k]:
+                results.append(chunk.dict())
+            return results
+        except Exception as e:
+            logger.error(f"Error in search: {str(e)}", exc_info=True)
+            return []
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        """Generate a response based on the prompt."""
+        try:
+            logger.info(f"Generating response for prompt: {prompt[:100]}...")
+            response = self.model.generate_content(prompt)
             return response.text
-            
         except Exception as e:
-            print(f"Error in Gemini generation: {e}")
-            return f"An error occurred: {str(e)}"
+            error_msg = f"Error in generation: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            return error_msg

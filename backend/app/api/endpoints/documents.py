@@ -1,74 +1,167 @@
-# backend/app/api/endpoints/documents.py
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
-from typing import List
+﻿# backend/app/api/endpoints/documents.py
+import logging
 import os
-from pathlib import Path
+import uuid
 from datetime import datetime
-from app.models.document import Document, DocumentCreate
+from pathlib import Path
+
+from pydantic import BaseModel
+from fastapi import APIRouter, UploadFile, HTTPException, status
+from fastapi.responses import JSONResponse
+
 from app.services.document_processor import DocumentProcessor
-from app.services.embedding_service import EmbeddingService
+from app.models.document import DocumentChunk
 from app.config import settings
+from rag_singleton import get_rag_service
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
-embedding_service = EmbeddingService()
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-@router.post("/upload", response_model=Document)
-async def upload_document(
-    file: UploadFile = File(...),
-    title: str = None,
-    description: str = None
-):
-    """Upload and process a document."""
-    # Validate file type
-    file_ext = Path(file.filename).suffix.lower()
-    if file_ext not in ['.pdf', '.txt', '.docx']:
-        raise HTTPException(400, "Unsupported file type")
 
-    # Create upload directory if it doesn't exist
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+class SummarizeRequest(BaseModel):
+    doc_id: str
+    style: str = "concise"
+    length: str = "medium"
 
-    # Save uploaded file
-    file_path = os.path.join(settings.UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as buffer:
-        buffer.write(await file.read())
 
-    # Process document
-    doc_processor = DocumentProcessor()
-    file_type = file_ext[1:]  # Remove the dot
-    text = doc_processor.extract_text(file_path, file_type)
-    cleaned_text = doc_processor.clean_text(text)
-    chunks = doc_processor.chunk_text(cleaned_text)
+@router.post("/upload")
+async def upload_document(file: UploadFile):
+    try:
+        logger.info(f"Starting upload for file: {file.filename}")
 
-    # Generate embeddings
-    texts = [chunk['text'] for chunk in chunks]
-    embeddings = embedding_service.create_embeddings(texts)
+        # Generate unique filename
+        file_ext = Path(file.filename).suffix
+        file_id = f"{uuid.uuid4()}{file_ext}"
+        file_path = os.path.join(UPLOAD_FOLDER, file_id)
 
-    # Create document record
-    document = Document(
-        id=str(len(embedding_service.documents)),
-        title=title or Path(file.filename).stem,
-        description=description,
-        document_type=file_type,
-        file_path=file_path,
-        file_size=os.path.getsize(file_path),
-        page_count=len(chunks),
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
-        owner_id="user1"  # TODO: Get from auth
-    )
+        # Save file
+        try:
+            content = await file.read()
+            logger.info(f"Read {len(content)} bytes from file")
 
-    # Add to vector store
-    if not embedding_service.index:
-        embedding_service.create_index(embeddings)
-    else:
-        embedding_service.index.add(embeddings.astype('float32'))
-    
-    embedding_service.add_document(document.dict(), chunks)
+            with open(file_path, "wb") as buffer:
+                buffer.write(content)
+            logger.info(f"File saved to {file_path}")
+        except Exception as e:
+            logger.error(f"Error saving file: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error saving file: {str(e)}",
+            )
 
-    return document
+        # Process document
+        try:
+            logger.info("Initializing DocumentProcessor")
+            processor = DocumentProcessor()
+            logger.info("Processing document...")
+            chunks = processor.process_document(file_path)
+            logger.info(f"Processed document into {len(chunks)} chunks")
 
-@router.get("/search")
-async def search_documents(query: str, k: int = 5):
-    """Search documents using semantic search."""
-    results = embedding_service.search(query, k)
-    return {"query": query, "results": results}
+            if not chunks:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No text could be extracted from this file. If it's a scanned PDF/image PDF, OCR is required.",
+                )
+
+        except HTTPException:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise
+        except Exception as e:
+            logger.error(f"Error processing document: {str(e)}", exc_info=True)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Error processing document: {str(e)}",
+            )
+
+        # Use RAG service from singleton
+        rag_service = get_rag_service()
+        logger.info(f"RAG service from singleton: {type(rag_service)}")
+        
+        # Add to RAG
+        try:
+            success = rag_service.add_documents(chunks)
+            if success:
+                logger.info(f"Document added successfully. Total chunks: {len(rag_service.chunks)}")
+            else:
+                raise HTTPException(status_code=500, detail="Failed to add document")
+        except Exception as e:
+            logger.error(f"Error adding to vector store: {str(e)}", exc_info=True)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise HTTPException(status_code=500, detail=f"Error adding document: {str(e)}")
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "id": file_id,
+                "filename": file.filename,
+                "size": len(content),
+                "chunks": len(chunks),
+                "message": "Document uploaded successfully"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in upload_document: {str(e)}", exc_info=True)
+        if "file_path" in locals() and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                logger.info(f"Cleaned up file: {file_path}")
+            except Exception as cleanup_error:
+                logger.error(f"Error cleaning up file: {str(cleanup_error)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}",
+        )
+
+
+@router.post("/summarize")
+async def summarize_document(req: SummarizeRequest):
+    try:
+        # Use RAG service from singleton
+        rag_service = get_rag_service()
+        logger.info(f"Summarize request - RAG has {len(rag_service.chunks)} chunks")
+
+        query = "Generate a comprehensive summary of the document content."
+        logger.info(f"Searching with query: {query}")
+        
+        results = rag_service.search(query, k=10)
+        logger.info(f"Search returned {len(results)} results")
+        
+        if results:
+            logger.info(f"First result text: {results[0].get('text', 'No text')[:100]}...")
+        else:
+            logger.warning("No search results found!")
+
+        context = "\n\n".join([r["text"] for r in results])
+        logger.info(f"Context length: {len(context)} characters")
+
+        prompt = f"""Please generate a {req.length} summary of the following document in a {req.style} style:
+
+{context}
+
+Summary:"""
+
+        summary = rag_service.generate(prompt)
+        logger.info(f"Generated summary length: {len(summary)}")
+
+        return {
+            "summary": summary,
+            "chunks_used": len(results),
+            "style": req.style,
+            "length": req.length,
+        }
+    except Exception as e:
+        logger.error(f"Error generating summary: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error generating summary: {str(e)}")

@@ -1,23 +1,17 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    # API Configuration
-    API_V1_STR: str = "/api"
-    PROJECT_NAME: str = "AI Teaching Assistant"
-    
-    # Gemini Configuration
-    GEMINI_API_KEY: str = "AIzaSyDHRmUf6srCdtKbGp7T36xMzKSn4TvyH24"
-    
-    # Document Processing
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
+    GEMINI_API_KEY: str
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 100
-    
-    # RAG Configuration
-    EMBEDDING_MODEL: str = "models/embedding-001"
-    CHAT_MODEL: str = "gemini-pro"
-    
-    class Config:
-        case_sensitive = True
-        env_file = ".env"
+
+    # Keep this so your app will NOT crash even if MODEL_NAME exists in .env or Windows env vars
+    MODEL_NAME: str = "models/gemini-2.5-flash"
 
 settings = Settings()

@@ -4,6 +4,7 @@ import CssBaseline from '@mui/material/CssBaseline';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import MainLayout from './components/layout/MainLayout';
 import Dashboard from './pages/Dashboard';
+import SummarizerPage from './pages/SummarizerPage';
 import theme from './theme/theme';
 
 const queryClient = new QueryClient();
@@ -16,7 +17,7 @@ function App() {
         <Routes>
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Dashboard />} />
-            {/* Add other routes here */}
+            <Route path="summarizer" element={<SummarizerPage />} />
           </Route>
         </Routes>
       </ThemeProvider>

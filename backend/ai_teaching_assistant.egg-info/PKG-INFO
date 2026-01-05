@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: ai-teaching-assistant
+Version: 0.1
+Requires-Dist: fastapi
+Requires-Dist: uvicorn
+Requires-Dist: python-multipart
+Requires-Dist: python-dotenv
+Requires-Dist: google-generativeai
+Requires-Dist: pydantic-settings
+Requires-Dist: pypdf2
+Requires-Dist: python-docx
+Dynamic: requires-dist
