@@ -1,34 +1,23 @@
 from pydantic_settings import BaseSettings
-from typing import List
-import os
-from pathlib import Path
 
 class Settings(BaseSettings):
-    # Application settings
-    APP_NAME: str = "AI Teaching Assistant"
-    APP_VERSION: str = "1.0.0"
-    DEBUG: bool = True
+    # API Configuration
+    API_V1_STR: str = "/api"
+    PROJECT_NAME: str = "AI Teaching Assistant"
     
-    # CORS settings
-    CORS_ORIGINS: List[str] = ["*"]  # In production, replace with your frontend URL
+    # Gemini Configuration
+    GEMINI_API_KEY: str = "AIzaSyDHRmUf6srCdtKbGp7T36xMzKSn4TvyH24"
     
-    # File upload settings
-    UPLOAD_DIR: str = "uploads"
-    MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
-    ALLOWED_FILE_TYPES: List[str] = ["pdf", "txt", "docx"]
+    # Document Processing
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 100
     
-    # Vector store settings
-    VECTOR_STORE_PATH: str = "data/vector_store"
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    # RAG Configuration
+    EMBEDDING_MODEL: str = "models/embedding-001"
+    CHAT_MODEL: str = "gemini-pro"
     
-    # LLM settings
-    LLM_PROVIDER: str = "openai"  # Options: "openai", "anthropic", "local"
-    
-    # Create upload directory if it doesn't exist
-    def __init__(self, **values):
-        super().__init__(**values)
-        os.makedirs(self.UPLOAD_DIR, exist_ok=True)
-        os.makedirs(self.VECTOR_STORE_PATH, exist_ok=True)
+    class Config:
+        case_sensitive = True
+        env_file = ".env"
 
-# Create settings instance
 settings = Settings()

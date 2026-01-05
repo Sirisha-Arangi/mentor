@@ -1,0 +1,27 @@
+﻿import { Routes, Route } from 'react-router-dom';
+import { ThemeProvider } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import MainLayout from './components/layout/MainLayout';
+import Dashboard from './pages/Dashboard';
+import theme from './theme/theme';
+
+const queryClient = new QueryClient();
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Routes>
+          <Route path="/" element={<MainLayout />}>
+            <Route index element={<Dashboard />} />
+            {/* Add other routes here */}
+          </Route>
+        </Routes>
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
+}
+
+export default App;
