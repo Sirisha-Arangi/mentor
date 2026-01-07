@@ -5,6 +5,7 @@ import os
 import uuid
 from pathlib import Path
 from pydantic import BaseModel
+from typing import List, Optional
 
 from app.services.document_processor import DocumentProcessor
 from app.models.document import DocumentChunk
@@ -29,6 +30,14 @@ class TopicSummarizeRequest(BaseModel):
     topic: str
     style: str = "concise"
     length: str = "medium"
+
+
+class QAGenerateRequest(BaseModel):
+    doc_id: str
+    topic: str
+    num_questions: int = 5
+    question_types: Optional[List[str]] = ["conceptual", "descriptive"]
+    difficulty_levels: Optional[List[str]] = ["easy", "medium"]
 
 
 @router.post("/upload")
@@ -133,7 +142,7 @@ async def generate_topic_summary(req: TopicSummarizeRequest):
         rag_service = get_rag_service()
 
         # Use topic as search query for targeted content retrieval
-        query = f"Find information about {req.topic} in the document"
+        query = f"Find information about {req.topic} in document"
         logger.info(f"Searching for topic-specific content: {req.topic}")
         
         results = rag_service.search(query, k=8)
@@ -148,7 +157,7 @@ async def generate_topic_summary(req: TopicSummarizeRequest):
         # Extract topic-specific content
         context = "\n\n".join([r["text"] for r in results])
         
-        # Generate focused summary for the specific topic
+        # Generate focused summary for specific topic
         prompt = f"""Please generate a {req.length} summary focused specifically on "{req.topic}" from the following document content. 
 Only summarize information related to {req.topic}. Ignore other topics. Use a {req.style} style.
 
@@ -174,4 +183,46 @@ Topic-Specific Summary:"""
 
     except Exception as e:
         logger.error(f"Error in topic summary: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.post("/generate-qa")
+async def generate_qa_pairs(req: QAGenerateRequest):
+    try:
+        from app.main import get_rag_service
+        rag_service = get_rag_service()
+        
+        # Import Q&A generator
+        from app.services.academic.qa_generator import QAGenerator
+        qa_generator = QAGenerator(rag_service)
+        
+        # Generate Q&A pairs
+        result = qa_generator.generate_qa_pairs(
+            topic=req.topic,
+            num_questions=req.num_questions,
+            question_types=req.question_types,
+            difficulty_levels=req.difficulty_levels
+        )
+        
+        if result["success"]:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "qa_pairs": result["qa_pairs"],
+                    "topic": req.topic,
+                    "total_questions": result["total_questions"],
+                    "difficulty_distribution": result["difficulty_distribution"],
+                    "topics_covered": result["topics_covered"],
+                    "source_chunks_used": result["source_chunks_used"]
+                }
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Failed to generate Q&A pairs")
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in Q&A generation: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
