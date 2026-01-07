@@ -6,7 +6,9 @@ import {
   Paper, 
   CircularProgress,
   Alert,
-  Snackbar
+  Snackbar,
+  TextField,
+  Grid
 } from '@mui/material';
 import { useDropzone } from 'react-dropzone';
 import { Upload as UploadIcon } from '@mui/icons-material';
@@ -19,11 +21,13 @@ const SummarizerPage = () => {
   const [summary, setSummary] = useState('');
   const [error, setError] = useState('');
   const [docId, setDocId] = useState('');
+  const [topic, setTopic] = useState('');
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       setFile(acceptedFiles[0]);
       setError('');
+      setSummary(''); // Clear previous summary
     }
   }, []);
 
@@ -87,6 +91,35 @@ const SummarizerPage = () => {
     }
   };
 
+  const handleGenerateTopicSummary = async () => {
+    if (!docId) {
+      setError('Please upload a document first');
+      return;
+    }
+
+    if (!topic.trim()) {
+      setError('Please enter a topic to summarize');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const response = await api.post('/documents/topic-summary', {
+        doc_id: docId,
+        topic: topic.trim(),
+        style: 'concise',
+        length: 'medium'
+      });
+      setSummary(response.data.summary);
+      setError('');
+    } catch (err) {
+      setError('Failed to generate topic summary. Please try again.');
+      console.error(err);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>
@@ -129,21 +162,49 @@ const SummarizerPage = () => {
         </Box>
       )}
 
+      {docId && (
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Topic-Specific Summary
+          </Typography>
+          <TextField
+            fullWidth
+            label="Enter topic to summarize"
+            placeholder="e.g., neural networks, machine learning, data structures..."
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            sx={{ mb: 2 }}
+            disabled={isUploading}
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Enter a specific topic from your document to generate a focused summary
+          </Typography>
+          <Button
+            variant="contained"
+            onClick={handleGenerateTopicSummary}
+            disabled={!topic.trim() || isUploading}
+            fullWidth
+          >
+            {isUploading ? 'Generating Topic Summary...' : 'Generate Topic Summary'}
+          </Button>
+        </Paper>
+      )}
+
       <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+        <Button
+          variant="outlined"
+          onClick={handleGenerateSummary}
+          disabled={!docId || isUploading}
+        >
+          {isUploading ? 'Generating...' : 'Generate Full Summary'}
+        </Button>
+
         <Button
           variant="contained"
           onClick={handleUpload}
           disabled={!file || isUploading}
         >
           {isUploading ? 'Uploading...' : 'Upload Document'}
-        </Button>
-
-        <Button
-          variant="outlined"
-          onClick={handleGenerateSummary}
-          disabled={!docId || isUploading}
-        >
-          {isUploading ? 'Generating...' : 'Generate Summary'}
         </Button>
       </Box>
 

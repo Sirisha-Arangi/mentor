@@ -24,6 +24,13 @@ class SummarizeRequest(BaseModel):
     length: str = "medium"
 
 
+class TopicSummarizeRequest(BaseModel):
+    doc_id: str
+    topic: str
+    style: str = "concise"
+    length: str = "medium"
+
+
 @router.post("/upload")
 async def upload_document(file: UploadFile):
     try:
@@ -84,7 +91,7 @@ async def summarize_document(req: SummarizeRequest):
         from app.main import get_rag_service
         rag_service = get_rag_service()
 
-        query = "Generate a comprehensive summary of the document content."
+        query = "Generate a comprehensive summary of document content."
         logger.info(f"Searching for relevant chunks with query: {query}")
         
         results = rag_service.search(query, k=10)
@@ -94,7 +101,7 @@ async def summarize_document(req: SummarizeRequest):
             raise HTTPException(status_code=404, detail="No relevant content found for summarization")
         
         context = "\n\n".join([r["text"] for r in results])
-        prompt = f"""Please generate a {req.length} summary of the following document in a {req.style} style:
+        prompt = f"""Please generate a {req.length} summary of following document in a {req.style} style:
 
 {context}
 
@@ -116,4 +123,55 @@ Summary:"""
 
     except Exception as e:
         logger.error(f"Error in summarize: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.post("/topic-summary")
+async def generate_topic_summary(req: TopicSummarizeRequest):
+    try:
+        from app.main import get_rag_service
+        rag_service = get_rag_service()
+
+        # Use topic as search query for targeted content retrieval
+        query = f"Find information about {req.topic} in the document"
+        logger.info(f"Searching for topic-specific content: {req.topic}")
+        
+        results = rag_service.search(query, k=8)
+        logger.info(f"Found {len(results)} relevant chunks for topic: {req.topic}")
+        
+        if not results:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No relevant content found for topic: {req.topic}"
+            )
+        
+        # Extract topic-specific content
+        context = "\n\n".join([r["text"] for r in results])
+        
+        # Generate focused summary for the specific topic
+        prompt = f"""Please generate a {req.length} summary focused specifically on "{req.topic}" from the following document content. 
+Only summarize information related to {req.topic}. Ignore other topics. Use a {req.style} style.
+
+Document Content:
+{context}
+
+Topic-Specific Summary:"""
+
+        summary = rag_service.generate(prompt)
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "summary": summary,
+                "topic": req.topic,
+                "chunks_used": len(results),
+                "style": req.style,
+                "length": req.length,
+                "retrieval_method": "topic_semantic_search"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error in topic summary: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
