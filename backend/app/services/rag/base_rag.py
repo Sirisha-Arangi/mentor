@@ -10,11 +10,6 @@ class BaseRAG(ABC):
         pass
     
     @abstractmethod
-    def add_document(self, doc_id: str, chunks: List[Dict], metadata: Optional[Dict] = None) -> bool:
-        """Add a single document with chunks"""
-        pass
-    
-    @abstractmethod
     def search(self, query: str, k: int = 5, **kwargs) -> List[Dict[str, Any]]:
         """Search for relevant chunks"""
         pass
