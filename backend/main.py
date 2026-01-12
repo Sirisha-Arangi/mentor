@@ -1,42 +1,76 @@
 ﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.endpoints import documents
-from app.services.rag import RAGFactory
 from app.config import settings
 import logging
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Document Summarizer API")
+# Initialize FastAPI app
+app = FastAPI(
+    title="AI Teaching Assistant",
+    description="Generative AI Agent for Automated Teaching Content Creation using RAG",
+    version="1.0.0"
+)
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React frontend
+    allow_origins=["http://localhost:5173"],  # Frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize RAG service once at startup
-rag_service = None
-
-@app.on_event("startup")
-async def startup_event():
-    global rag_service
-    try:
-        rag_service = RAGFactory.create_rag_service(
-            collection_name="academic_docs",
-            persist_directory="./chroma_data"
-        )
-        logger.info("RAG service initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize RAG service: {str(e)}", exc_info=True)
-
 # Include routers
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 
-# Make rag_service available to endpoints
+# Global RAG service instance
+_rag_service = None
+
+def get_rag_service():
+    """Get LangChain RAG service instance"""
+    global _rag_service
+    if _rag_service is None:
+        from app.services.rag import RAGFactory
+        _rag_service = RAGFactory.create_rag_service(
+            provider="langchain",
+            api_key=settings.GEMINI_API_KEY
+        )
+        logger.info("Created LangChain RAG service")
+    return _rag_service
+
+@app.get("/")
+async def root():
+    return {"message": "AI Teaching Assistant API", "version": "1.0.0"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "AI Teaching Assistant"}
+
 @app.get("/api/rag-status")
 async def rag_status():
-    return {"rag_initialized": rag_service is not None, "total_chunks": len(rag_service.chunks) if rag_service else 0}
+    """Get status of LangChain RAG service"""
+    try:
+        rag_service = get_rag_service()
+        
+        if hasattr(rag_service, 'get_collection_stats'):
+            stats = rag_service.get_collection_stats()
+        else:
+            stats = {"status": "available", "type": "langchain"}
+        
+        return {
+            "rag_service": stats,
+            "provider": "langchain",
+            "status": "active"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting RAG status: {str(e)}")
+        return {"status": "error", "error": str(e)}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

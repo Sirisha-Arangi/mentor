@@ -18,7 +18,13 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
+# Add after existing imports
+class FlashcardGenerateRequest(BaseModel):
+    doc_id: str
+    topic: str
+    num_cards: int = 10
+    difficulty: str = "medium"
+    card_types: Optional[List[str]] = ["definition", "concept", "application"]
 class SummarizeRequest(BaseModel):
     doc_id: str
     style: str = "concise"
@@ -67,13 +73,13 @@ async def upload_document(file: UploadFile):
                 detail="No text could be extracted from this file.",
             )
 
-        # Add to RAG
-        from app.main import get_rag_service
+        # Add to LangChain RAG
+        from rag_singleton import get_rag_service
         rag_service = get_rag_service()
         
         success = rag_service.add_documents(chunks)
         if success:
-            logger.info(f"Document added successfully to ChromaDB")
+            logger.info(f"Document added successfully to LangChain ChromaDB")
         else:
             raise HTTPException(status_code=500, detail="Failed to add document to ChromaDB")
 
@@ -97,7 +103,7 @@ async def upload_document(file: UploadFile):
 @router.post("/summarize")
 async def summarize_document(req: SummarizeRequest):
     try:
-        from app.main import get_rag_service
+        from rag_singleton import get_rag_service
         rag_service = get_rag_service()
 
         query = "Generate a comprehensive summary of document content."
@@ -138,7 +144,7 @@ Summary:"""
 @router.post("/topic-summary")
 async def generate_topic_summary(req: TopicSummarizeRequest):
     try:
-        from app.main import get_rag_service
+        from rag_singleton import get_rag_service
         rag_service = get_rag_service()
 
         # Use topic as search query for targeted content retrieval
@@ -189,7 +195,7 @@ Topic-Specific Summary:"""
 @router.post("/generate-qa")
 async def generate_qa_pairs(req: QAGenerateRequest):
     try:
-        from app.main import get_rag_service
+        from rag_singleton import get_rag_service
         rag_service = get_rag_service()
         
         # Import Q&A generator
@@ -225,4 +231,45 @@ async def generate_qa_pairs(req: QAGenerateRequest):
             
     except Exception as e:
         logger.error(f"Error in Q&A generation: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@router.post("/generate-flashcards")
+async def generate_flashcards(req: FlashcardGenerateRequest):
+    try:
+        from rag_singleton import get_rag_service
+        rag_service = get_rag_service()
+        
+        # Import flashcard generator
+        from app.services.academic.flashcard_generator import FlashcardGenerator
+        flashcard_generator = FlashcardGenerator(rag_service)
+        
+        # Generate flashcards
+        result = flashcard_generator.generate_flashcards(
+            topic=req.topic,
+            num_cards=req.num_cards,
+            difficulty=req.difficulty,
+            card_types=req.card_types
+        )
+        
+        if result["success"]:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "flashcards": result["flashcards"],
+                    "topic": req.topic,
+                    "total_cards": result["total_cards"],
+                    "difficulty_level": result["difficulty_level"],
+                    "card_types_used": result["card_types_used"],
+                    "source_chunks_used": result["source_chunks_used"]
+                }
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Failed to generate flashcards")
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in flashcard generation: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
